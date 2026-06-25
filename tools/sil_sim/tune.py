@@ -82,54 +82,93 @@ def main():
                     choices=sorted(SEARCH_SPACE),
                     help="knobs to tune (default: kp_steering)")
     ap.add_argument("--courses", nargs="+", default=["square"],
-                    choices=sorted(COURSES))
+                    choices=sorted(COURSES),
+                    help="tune AND report on these (no held-out check). "
+                         "Ignored if --train is given.")
+    ap.add_argument("--train", nargs="+", choices=sorted(COURSES),
+                    help="courses the tuner is allowed to optimize on")
+    ap.add_argument("--validate", nargs="+", choices=sorted(COURSES),
+                    help="held-out courses the tuner never sees; the winner "
+                         "is only scored on them at the end")
+    ap.add_argument("--sampler", choices=["tpe", "cmaes"], default="tpe",
+                    help="search strategy: tpe (robust for mixed int/float, "
+                         "default) or cmaes (continuous evolution strategy)")
     ap.add_argument("--trials", type=int, default=60)
     ap.add_argument("--max-seconds", type=float, default=120)
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--plot", action="store_true",
-                    help="before/after path plot on the first course")
+                    help="before/after path plot on a held-out (or first) course")
     ap.add_argument("--save", metavar="PNG",
                     help="save the before/after plot to this file instead of "
                          "(or as well as) showing it")
     args = ap.parse_args()
 
-    courses = tuple(args.courses)
+    # Resolve the train / validation split.
+    if args.train:
+        train_courses = tuple(args.train)
+        val_courses = tuple(args.validate) if args.validate else ()
+    else:
+        # Back-compat: tune and report on --courses, no held-out check.
+        train_courses = tuple(args.courses)
+        val_courses = tuple(args.validate) if args.validate else ()
 
-    # ---- Baseline (firmware defaults) ----
-    baseline_j = evaluate(DEFAULT_KNOBS, courses=courses,
-                          max_seconds=args.max_seconds)
+    max_s = args.max_seconds
+
+    # ---- Baselines (firmware defaults) ----
+    base_train = evaluate(DEFAULT_KNOBS, courses=train_courses, max_seconds=max_s)
+    base_val = (evaluate(DEFAULT_KNOBS, courses=val_courses, max_seconds=max_s)
+                if val_courses else None)
 
     print("Tuning      : {0}".format(", ".join(args.params)))
-    print("Courses     : {0}".format(", ".join(courses)))
+    print("Sampler     : {0}".format(args.sampler))
+    print("Train       : {0}".format(", ".join(train_courses)))
+    print("Validate    : {0}".format(", ".join(val_courses) if val_courses
+                                     else "(none — no held-out check)"))
     print("Trials      : {0}".format(args.trials))
-    print("Baseline J  : {0:.2f}  (firmware defaults: {1})".format(
-        baseline_j, {k: DEFAULT_KNOBS[k] for k in args.params}))
-    print("-" * 60)
+    print("Baseline    : train J={0:.2f}{1}  (defaults: {2})".format(
+        base_train,
+        "  val J={0:.2f}".format(base_val) if base_val is not None else "",
+        {k: DEFAULT_KNOBS[k] for k in args.params}))
+    print("-" * 64)
 
     # ---- Optuna study ----
     optuna.logging.set_verbosity(optuna.logging.WARNING)
-    study = optuna.create_study(
-        direction="minimize",
-        sampler=optuna.samplers.TPESampler(seed=args.seed))
-    study.optimize(make_objective(args.params, courses, args.max_seconds),
+    if args.sampler == "cmaes":
+        sampler = optuna.samplers.CmaEsSampler(seed=args.seed)
+    else:
+        sampler = optuna.samplers.TPESampler(seed=args.seed)
+    study = optuna.create_study(direction="minimize", sampler=sampler)
+    study.optimize(make_objective(args.params, train_courses, max_s),
                    n_trials=args.trials, show_progress_bar=False)
 
     best = study.best_params
-    best_j = study.best_value
+    best_train = study.best_value
 
     # Full tuned knob set = defaults overridden by the tuned params.
     tuned_knobs = dict(DEFAULT_KNOBS)
     tuned_knobs.update(best)
 
-    improvement = (baseline_j - best_j) / baseline_j * 100.0 if baseline_j else 0.0
-    print("Best J      : {0:.2f}".format(best_j))
-    print("Best params : {0}".format(
-        {k: best[k] for k in args.params}))
-    print("Improvement : {0:.1f}%  lower cost vs baseline".format(improvement))
+    def pct(base, tuned):
+        return (base - tuned) / base * 100.0 if base else 0.0
+
+    print("Best params : {0}".format({k: best[k] for k in args.params}))
+    print("Train  J    : {0:.2f} -> {1:.2f}   ({2:+.1f}% better)".format(
+        base_train, best_train, pct(base_train, best_train)))
+
+    best_val = None
+    if val_courses:
+        best_val = evaluate(tuned_knobs, courses=val_courses, max_seconds=max_s)
+        verdict = "generalizes" if best_val < base_val else "OVERFIT — worse on held-out"
+        print("Valid. J    : {0:.2f} -> {1:.2f}   ({2:+.1f}% better)  [{3}]".format(
+            base_val, best_val, pct(base_val, best_val), verdict))
 
     if args.plot or args.save:
-        _plot_before_after(courses[0], DEFAULT_KNOBS, tuned_knobs,
-                           baseline_j, best_j, args.max_seconds, args.params,
+        # Prefer plotting a held-out course (the honest test) when available.
+        plot_course = val_courses[0] if val_courses else train_courses[0]
+        plot_base = base_val if val_courses else base_train
+        plot_best = best_val if val_courses else best_train
+        _plot_before_after(plot_course, DEFAULT_KNOBS, tuned_knobs,
+                           plot_base, plot_best, max_s, args.params,
                            save=args.save, show=args.plot)
 
     return 0
