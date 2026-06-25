@@ -121,7 +121,7 @@ without actually driving better. We found three and closed them:
 | **Floor the throttle** to crush the finish‑time term. | Added an **excess‑speed penalty** above a 150 cm/s safe cap — fast is no longer free. |
 | **Enlarge the "arrived" radius** to finish early and cut corners. | **Removed `waypoint_radius` from the tunables** — it's a mission tolerance, not a control gain. |
 | Tuning a steer angle the hardware can't reach (>25°). | **Capped `max_steer_deg` at 25°**, the physical wheel limit. |
-| **Penalizing physically‑necessary corner rounding.** A trike *cannot* trace a sharp 90° vertex (min turning radius ≈ 2.6 m), so charging cross‑track at corners punished the unavoidable. | Added a **waypoint pass‑through term**: the path between waypoints is free, but the trike must come within **2 m** of each waypoint. Forgiving about *how* it rounds, strict about *whether* it visits. |
+| **Penalizing physically‑necessary corner rounding.** A trike *cannot* trace a sharp 90° vertex (min turning radius ≈ 2.6 m), so charging cross‑track at corners punished the unavoidable. | Added a **waypoint pass‑through term**: the trike must come within **2 m** of each waypoint, regardless of the path it takes between them. This makes *threading the corner* the dominant signal (cross‑track stays strict on the straights). Forgiving about *how* it rounds, strict about *whether* it visits. |
 
 **Result:** the headline improvement is an honest **~21 %** on the held‑out mission. Earlier,
 before these fixes, the optimizer reported an inflated **30 %** by flooring the throttle and
