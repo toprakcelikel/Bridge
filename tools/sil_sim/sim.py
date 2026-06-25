@@ -33,6 +33,7 @@ DEFAULT_WEIGHTS = {
     "time": 2.0,             # per second to finish the mission
     "jerk": 0.05,            # per DegX10 of mean steering change
     "speed": 0.20,           # per cm/s of mean speed ABOVE the safe cruise cap
+    "waypoint_miss": 2.0,    # per cm a waypoint pass was OUTSIDE the tolerance
     "violation": 50.0,       # per off-course sample
     "did_not_finish": 5000.0,  # flat penalty if the mission never completes
 }
@@ -43,6 +44,12 @@ VIOLATION_CT_CM = 600
 # Speed considered comfortable/safe; cruising faster than this is penalized so
 # the optimizer can't drive the score down just by flooring the throttle.
 SAFE_SPEED_cmPs = 150
+
+# The trike must pass within this distance of each waypoint to count as having
+# visited it. Sized above the corner turning-radius floor (~1.1 m) so that
+# physically-necessary corner rounding is not penalized. On hardware this
+# should be raised to match real GPS accuracy (~2-3 m).
+WAYPOINT_TOL_CM = 200
 
 
 def _point_to_segment_cm(px, py, ax, ay, bx, by):
@@ -78,6 +85,24 @@ def _dist_to_path_cm(px, py, waypoints_cm):
         ax, ay = waypoints_cm[0]
         best = math.hypot(px - ax, py - ay)
     return best
+
+
+def _waypoint_miss_cm(samples, waypoints_cm, tol_cm):
+    """Mean per-waypoint shortfall (cm) beyond the pass-through tolerance.
+
+    For each waypoint we find the closest the trike ever got to it, then charge
+    only the distance OUTSIDE the tolerance circle (0 if it passed within).
+    This enforces actually visiting each waypoint without dictating the path
+    taken between them, so physically-necessary corner rounding is not charged.
+    """
+    if not waypoints_cm:
+        return 0.0
+    total = 0.0
+    for wx, wy in waypoints_cm:
+        closest = min(math.hypot(s["east_cm"] - wx, s["north_cm"] - wy)
+                      for s in samples)
+        total += max(0.0, closest - tol_cm)
+    return total / len(waypoints_cm)
 
 
 def run_sim(course="square", knobs=None, max_seconds=120, start_heading_tenths=0):
@@ -200,6 +225,7 @@ def score_run(samples, result, waypoints_cm, weights=None):
 
     mean_ct = sum_ct / n
     mean_head = sum_head / n
+    wp_miss = _waypoint_miss_cm(samples, waypoints_cm, WAYPOINT_TOL_CM)
 
     finish_time = result["finish_time_s"]
     if finish_time is None:
@@ -216,6 +242,7 @@ def score_run(samples, result, waypoints_cm, weights=None):
          w["time"] * finish_time +
          w["jerk"] * (sum_jerk / n) +
          w["speed"] * (sum_speed_excess / n) +
+         w["waypoint_miss"] * wp_miss +
          w["violation"] * violations +
          dnf)
     return j
