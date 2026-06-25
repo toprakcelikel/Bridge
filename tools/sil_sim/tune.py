@@ -31,11 +31,16 @@ from courses import COURSES
 # Floats use a log scale where the natural range spans orders of magnitude.
 # ===========================================================================
 SEARCH_SPACE = {
-    "kp_steering":        (1,      20,    "int"),
-    "max_steer_deg":      (10,     35,    "int"),
+    "kp_steering":        (1,      40,    "int"),
+    # Router clamps the wheel angle at MAX_ANGLE_TENTHS = 25.0 deg, so steering
+    # commands above 25 deg have no physical effect — cap the search there.
+    "max_steer_deg":      (10,     25,    "int"),
+    # NOTE: waypoint_radius is a MISSION tolerance (how close counts as
+    # "arrived"), not a control gain. Tuning it lets the optimizer cut corners
+    # and finish early, so it is intentionally left OUT of the default --params.
     "waypoint_radius_cm": (150,    500,   "int"),
-    "cruise_cmPs":        (60,     180,   "int"),
-    "steer_deadband":     (1,      15,    "int"),
+    "cruise_cmPs":        (60,     200,   "int"),
+    "steer_deadband":     (1,      20,    "int"),
     "throttle_kp":        (1e-3,   1e-1,  "logfloat"),
     "throttle_ki":        (1e-2,   1.0,   "logfloat"),
     "throttle_kd":        (1e-6,   1e-3,  "logfloat"),

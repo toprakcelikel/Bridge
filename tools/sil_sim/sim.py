@@ -31,13 +31,18 @@ DEFAULT_WEIGHTS = {
     "cross_track": 1.0,      # per cm of mean cross-track error
     "heading": 0.5,          # per degree of mean heading error
     "time": 2.0,             # per second to finish the mission
-    "jerk": 0.05,            # per DegX10 of total steering change
+    "jerk": 0.05,            # per DegX10 of mean steering change
+    "speed": 0.20,           # per cm/s of mean speed ABOVE the safe cruise cap
     "violation": 50.0,       # per off-course sample
     "did_not_finish": 5000.0,  # flat penalty if the mission never completes
 }
 
-# A position this far off the corridor counts as a violation.
+# A position this far off the intended path counts as a violation.
 VIOLATION_CT_CM = 600
+
+# Speed considered comfortable/safe; cruising faster than this is penalized so
+# the optimizer can't drive the score down just by flooring the throttle.
+SAFE_SPEED_cmPs = 150
 
 
 def _point_to_segment_cm(px, py, ax, ay, bx, by):
@@ -52,6 +57,27 @@ def _point_to_segment_cm(px, py, ax, ay, bx, by):
     cx = ax + t * abx
     cy = ay + t * aby
     return math.hypot(px - cx, py - cy)
+
+
+def _dist_to_path_cm(px, py, waypoints_cm):
+    """Shortest distance from P to the whole intended waypoint polyline.
+
+    Measuring against the entire path (not just the current target segment)
+    makes the metric immune to capture-radius gaming: cutting a corner still
+    shows up as distance from the intended route, no matter when the trike
+    decides a waypoint is 'reached'.
+    """
+    best = None
+    for i in range(len(waypoints_cm) - 1):
+        ax, ay = waypoints_cm[i]
+        bx, by = waypoints_cm[i + 1]
+        d = _point_to_segment_cm(px, py, ax, ay, bx, by)
+        if best is None or d < best:
+            best = d
+    if best is None:                 # single-waypoint degenerate course
+        ax, ay = waypoints_cm[0]
+        best = math.hypot(px - ax, py - ay)
+    return best
 
 
 def run_sim(course="square", knobs=None, max_seconds=120, start_heading_tenths=0):
@@ -152,15 +178,13 @@ def score_run(samples, result, waypoints_cm, weights=None):
     sum_ct = 0.0
     sum_head = 0.0
     sum_jerk = 0.0
+    sum_speed_excess = 0.0
     violations = 0
     prev_steer = samples[0]["steer_cmd"]
 
     for s in samples:
-        idx = s["waypoint_idx"]
-        # Corridor segment: previous waypoint -> current target.
-        bx, by = waypoints_cm[min(idx, len(waypoints_cm) - 1)]
-        ax, ay = waypoints_cm[idx - 1] if idx > 0 else waypoints_cm[0]
-        ct = _point_to_segment_cm(s["east_cm"], s["north_cm"], ax, ay, bx, by)
+        # Cross-track vs the entire intended path (capture-radius-proof).
+        ct = _dist_to_path_cm(s["east_cm"], s["north_cm"], waypoints_cm)
         sum_ct += ct
         if ct > VIOLATION_CT_CM:
             violations += 1
@@ -168,6 +192,11 @@ def score_run(samples, result, waypoints_cm, weights=None):
         sum_head += abs(s["err_cD"]) / 100.0
         sum_jerk += abs(s["steer_cmd"] - prev_steer)
         prev_steer = s["steer_cmd"]
+
+        # Only speed above the safe cap is penalized; normal cruise is free.
+        excess = s["speed_cmPs"] - SAFE_SPEED_cmPs
+        if excess > 0:
+            sum_speed_excess += excess
 
     mean_ct = sum_ct / n
     mean_head = sum_head / n
@@ -186,6 +215,7 @@ def score_run(samples, result, waypoints_cm, weights=None):
          w["heading"] * mean_head +
          w["time"] * finish_time +
          w["jerk"] * (sum_jerk / n) +
+         w["speed"] * (sum_speed_excess / n) +
          w["violation"] * violations +
          dnf)
     return j
