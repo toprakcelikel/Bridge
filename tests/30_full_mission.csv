@@ -1,0 +1,15 @@
+# Test: Straight, right, straight, left, then brake stop.
+# Format: time_ms, CANID, nbytes, speed_cmPs, brake, mode, angle_tenths
+#   brake: 0=off, 1=hold/12V, 2=on/24V   mode: 1=auto
+# Assertions use LOG fields: actual_angle_tenths, sim_speed_cmPs
+
+0,350,6,1500,0,1,0
+# assert t=1800: -20 <= actual_angle_tenths <= 20
+2000,350,6,1500,0,1,250
+# assert t=3800: 200 <= actual_angle_tenths <= 250
+5000,350,6,1500,0,1,0
+# assert t=6500: -20 <= actual_angle_tenths <= 20
+7000,350,6,1500,0,1,-250
+# assert t=9000: -250 <= actual_angle_tenths <= -200
+10000,350,6,0,2,1,0
+# assert t=13000: sim_speed_cmPs < 20

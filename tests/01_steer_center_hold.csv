@@ -1,0 +1,8 @@
+# Test: Hold straight while cruising; wheel must stay centered.
+# Format: time_ms, CANID, nbytes, speed_cmPs, brake, mode, angle_tenths
+#   brake: 0=off, 1=hold/12V, 2=on/24V   mode: 1=auto
+# Assertions use LOG fields: actual_angle_tenths, sim_speed_cmPs
+
+0,350,6,1500,0,1,0
+# assert t=2000: -20 <= actual_angle_tenths <= 20
+# assert t=4000: -20 <= actual_angle_tenths <= 20

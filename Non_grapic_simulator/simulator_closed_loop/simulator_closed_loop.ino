@@ -98,9 +98,10 @@
 #define BRAKE_VOLT_PIN  42
 // From DBW D44
 #define BRAKE_ON_PIN    48
-// From DBW D26 — HIGH while DBW wants to turn left
+// Steering inputs from DBW (old two-pin L_TURN/R_TURN scheme):
+//   L_TURN_PIN (D4) <- DBW D26 : HIGH while DBW wants to turn left
+//   R_TURN_PIN (D2) <- DBW D28 : HIGH while DBW wants to turn right
 #define L_TURN_PIN      4
-// From DBW D28 — HIGH while DBW wants to turn right
 #define R_TURN_PIN      2
 // To DBW D47
 #define IRPT_WHEEL_PIN  47
@@ -206,11 +207,6 @@ void setup() {
   pinMode(BRAKE_ON_PIN, INPUT);
   pinMode(L_TURN_PIN, INPUT);
   pinMode(R_TURN_PIN, INPUT);
-  // Explicitly disable the SAM3X internal pullups on the L_TURN/R_TURN
-  // inputs. Otherwise the boot pullup state is non-deterministic and
-  // digitalRead can return HIGH even when DBW is actively pulling LOW.
-  g_APinDescription[L_TURN_PIN].pPort->PIO_PUDR = g_APinDescription[L_TURN_PIN].ulPin;
-  g_APinDescription[R_TURN_PIN].pPort->PIO_PUDR = g_APinDescription[R_TURN_PIN].ulPin;
   pinMode(IRPT_WHEEL_PIN, OUTPUT);
   digitalWrite(IRPT_WHEEL_PIN, LOW);
 
@@ -283,7 +279,9 @@ void loop() {
   // commands speed=0, DBW's throttle PID outputs 0 and we treat that as brake.
   bool brakeOn = (throttle < MIN_EFFECTIVE_THROTTLE);
 
-  // Steering via two digital wires from DBW (L_TURN D4, R_TURN D2).
+  // Steering inputs from DBW (old two-pin L_TURN/R_TURN scheme):
+  //   D4 <- DBW D26 = L_TURN: HIGH while DBW wants to turn left
+  //   D2 <- DBW D28 = R_TURN: HIGH while DBW wants to turn right
   bool lTurn = (digitalRead(L_TURN_PIN) == HIGH);
   bool rTurn = (digitalRead(R_TURN_PIN) == HIGH);
   angle_tenths = updateAngle(lTurn, rTurn);
