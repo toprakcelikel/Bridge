@@ -355,6 +355,7 @@ void printTestLog() {
   LOG_PORT.print(",actual_angle_tenths=");   LOG_PORT.print(angle_tenths);
   LOG_PORT.print(",dbw_angle_tenths=");      LOG_PORT.print(dbwAngle_DegX10);
   LOG_PORT.print(",cmd_angle_tenths=");      LOG_PORT.print(cmd_angle_DegX10);
+  LOG_PORT.print(",sim_speed_cmPs=");        LOG_PORT.print(speed_mmPs / 10);
   LOG_PORT.print(",cmd_speed_cmPs=");        LOG_PORT.println(cmd_speed_cmPs);
 }
 
