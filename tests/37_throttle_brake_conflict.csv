@@ -1,0 +1,15 @@
+# Test: Throttle+brake conflict (regression guard for the brake-over-throttle
+#       fix). Drive, then command MAX throttle AND full brake at the same time.
+#       Correct/safe behavior: the brake dominates and the vehicle stops.
+#       NOTE: before the fix in Vehicle::update (if desired_brake>0 -> speed 0),
+#       this FAILED - the throttle won and the trike kept driving.
+# Format: time_ms, CANID, nbytes, speed_cmPs, brake, mode, angle_tenths
+#   brake: 0=off, nonzero=ON   mode: 1=auto
+# Assertions use LOG fields: actual_angle_tenths, sim_speed_cmPs
+
+0,350,6,1500,0,1,0
+# Confirm it is driving.
+# assert t=2000: sim_speed_cmPs > 50
+2000,350,6,3000,2,1,0
+# Full throttle + full brake together: brake MUST win, vehicle stops.
+# assert t=4000: sim_speed_cmPs < 20
