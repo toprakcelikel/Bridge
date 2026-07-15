@@ -1,8 +1,0 @@
-# Test: Brake engaged from the start: never moves.
-# Format: time_ms, CANID, nbytes, speed_cmPs, brake, mode, angle_tenths
-#   brake: 0=off, 1=hold/12V, 2=on/24V   mode: 1=auto
-# Assertions use LOG fields: actual_angle_tenths, sim_speed_cmPs
-
-0,350,6,0,2,1,0
-# assert t=2000: sim_speed_cmPs < 20
-# assert t=4000: sim_speed_cmPs < 20

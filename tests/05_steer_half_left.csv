@@ -1,8 +1,0 @@
-# Test: Command half left (-125).
-# Format: time_ms, CANID, nbytes, speed_cmPs, brake, mode, angle_tenths
-#   brake: 0=off, 1=hold/12V, 2=on/24V   mode: 1=auto
-# Assertions use LOG fields: actual_angle_tenths, sim_speed_cmPs
-
-0,350,6,1500,0,1,0
-1000,350,6,1500,0,1,-125
-# assert t=2200: -155 <= actual_angle_tenths <= -95

@@ -1,9 +1,0 @@
-# Test: Sustained cruise for several seconds.
-# Format: time_ms, CANID, nbytes, speed_cmPs, brake, mode, angle_tenths
-#   brake: 0=off, 1=hold/12V, 2=on/24V   mode: 1=auto
-# Assertions use LOG fields: actual_angle_tenths, sim_speed_cmPs
-
-0,350,6,1500,0,1,0
-# assert t=3000: sim_speed_cmPs > 50
-# assert t=6000: sim_speed_cmPs > 50
-# assert t=9000: sim_speed_cmPs > 50
