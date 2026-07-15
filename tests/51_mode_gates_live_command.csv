@@ -1,0 +1,22 @@
+# Test: Mode gates a live command (engage -> disengage -> re-engage). Drive in auto,
+#       then switch mode to 0 WHILE a full accelerate+turn command is still being sent.
+#       A non-auto mode must block BOTH throttle and steering -- the live autonomous
+#       command must not move or turn the trike. Then re-engage auto and confirm it
+#       obeys again (proving the block was the mode, not something else).
+# Physics: cruise in auto -> mode 0 with drive+turn still commanded -> stop & center
+#          -> mode 1 again -> re-accelerate.
+# Assumption: mode=1 = auto/engaged; any other mode = ignore autonomous drive+steer.
+# Format: time_ms, CANID, nbytes, speed_cmPs, brake, mode, angle_tenths
+#   brake: 0=off, 1=hold/12V, 2=on/24V   mode: 1=auto
+# Assertions use LOG fields: actual_angle_tenths, sim_speed_cmPs
+
+0,350,6,1500,0,1,0
+# assert t=1500: sim_speed_cmPs > 50
+2000,350,6,1500,0,0,200
+# ^ mode -> 0, but STILL commanding speed 1500 + turn +200.
+#   A non-auto mode must ignore it: no motion, no turn.
+# assert t=4000: sim_speed_cmPs < 20
+# assert t=4000: -20 <= actual_angle_tenths <= 20
+4500,350,6,1500,0,1,0
+# ^ RE-ENGAGE auto -> must obey again
+# assert t=6500: sim_speed_cmPs > 50

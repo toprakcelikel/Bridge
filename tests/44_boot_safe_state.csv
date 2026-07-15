@@ -1,0 +1,12 @@
+# Test: Power-on / boot safe state. With only a neutral command (no throttle, no
+#       brake, centered) the trike must sit safely -- stopped and centered -- and
+#       never creep or drift on its own. Verifies the default/idle output is safe.
+# Physics: no speed command -> should stay at 0; no angle command -> should hold center.
+# Format: time_ms, CANID, nbytes, speed_cmPs, brake, mode, angle_tenths
+#   brake: 0=off, 1=hold/12V, 2=on/24V   mode: 1=auto
+# Assertions use LOG fields: actual_angle_tenths, sim_speed_cmPs
+
+0,350,6,0,0,1,0
+# assert t=500: sim_speed_cmPs < 20
+# assert t=3000: sim_speed_cmPs < 20
+# assert t=3000: -20 <= actual_angle_tenths <= 20

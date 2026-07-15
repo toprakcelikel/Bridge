@@ -1,0 +1,16 @@
+# Test: Non-auto mode ignores drive commands. Autonomy must be explicitly engaged
+#       (mode=1). A dangerous accelerate+turn sent with mode=0 (NOT auto) must be
+#       ignored -- the trike must not move under a non-autonomous command.
+# Physics: a valid mode=1 frame here would accelerate to 130 and slew to +200; if the
+#       trike stays stopped and centered, the non-auto command was correctly ignored.
+# Assumption: mode=1 = auto/engaged; any other mode = not autonomous -> ignore drive.
+# Format: time_ms, CANID, nbytes, speed_cmPs, brake, mode, angle_tenths
+#   brake: 0=off, 1=hold/12V, 2=on/24V   mode: 1=auto
+# Assertions use LOG fields: actual_angle_tenths, sim_speed_cmPs
+
+0,350,6,0,0,1,0
+# assert t=1000: sim_speed_cmPs < 20
+2000,350,6,1500,0,0,200
+# ^ accelerate+turn but mode=0 (NOT auto). Must be ignored.
+# assert t=4000: sim_speed_cmPs < 20
+# assert t=4000: -20 <= actual_angle_tenths <= 20

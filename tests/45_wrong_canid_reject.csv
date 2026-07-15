@@ -1,0 +1,15 @@
+# Test: Wrong CAN ID rejection. The DBW listens for command ID 350. A dangerous
+#       accelerate+turn command sent on a DIFFERENT id (351) must be ignored, not
+#       acted on. Complements 40 (malformed frame) on the addressing axis.
+# Physics: a valid 350 frame here would accelerate to 130 and slew to +250; if the
+#       trike stays stopped and centered, the foreign-id frame was correctly ignored.
+# Format: time_ms, CANID, nbytes, speed_cmPs, brake, mode, angle_tenths
+#   brake: 0=off, 1=hold/12V, 2=on/24V   mode: 1=auto
+# Assertions use LOG fields: actual_angle_tenths, sim_speed_cmPs
+
+0,350,6,0,0,1,0
+# assert t=1000: sim_speed_cmPs < 20
+2000,351,6,1500,0,1,200
+# ^ WRONG CAN ID (351, not 350). Must be ignored.
+# assert t=4000: sim_speed_cmPs < 20
+# assert t=4000: -20 <= actual_angle_tenths <= 20

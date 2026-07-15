@@ -1,0 +1,28 @@
+# Test: Long-duration soak / stability. Hold a steady cruise + centered command for
+#       15 seconds (refreshed every 1s to keep the link alive) and confirm nothing
+#       drifts, jitters, or wraps. Targets timer/counter-rollover and slow-drift bugs.
+# Physics: steady state should hold ~130 cm/s and center indefinitely.
+# NOTE: refresh interval is 1s; if a watchdog shorter than 1s is added, tighten it.
+# Format: time_ms, CANID, nbytes, speed_cmPs, brake, mode, angle_tenths
+#   brake: 0=off, 1=hold/12V, 2=on/24V   mode: 1=auto
+# Assertions use LOG fields: actual_angle_tenths, sim_speed_cmPs
+
+0,350,6,1500,0,1,0
+1000,350,6,1500,0,1,0
+2000,350,6,1500,0,1,0
+3000,350,6,1500,0,1,0
+4000,350,6,1500,0,1,0
+5000,350,6,1500,0,1,0
+6000,350,6,1500,0,1,0
+7000,350,6,1500,0,1,0
+8000,350,6,1500,0,1,0
+9000,350,6,1500,0,1,0
+10000,350,6,1500,0,1,0
+11000,350,6,1500,0,1,0
+12000,350,6,1500,0,1,0
+13000,350,6,1500,0,1,0
+14000,350,6,1500,0,1,0
+15000,350,6,1500,0,1,0
+# assert t=5000: sim_speed_cmPs > 50
+# assert t=15000: sim_speed_cmPs > 50
+# assert t=15000: -20 <= actual_angle_tenths <= 20

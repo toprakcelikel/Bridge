@@ -1,0 +1,18 @@
+# Test: Short-scale speed tracking (up -> down -> up). Accelerate, then command a
+#       STOP right after (before reaching cruise), then GO again right after. Each new
+#       command must pull the actual speed TOWARD it -- climb, reverse down, reverse up
+#       -- proving it tracks the latest command instead of lagging/offsetting.
+# Physics: ramp is slow early (~30 cm/s by 500ms, ~130 by 1.1s); decel halves ~/100ms.
+# NOTE: thresholds are conservative; tune after the first run if the ramp differs.
+# Format: time_ms, CANID, nbytes, speed_cmPs, brake, mode, angle_tenths
+#   brake: 0=off, 1=hold/12V, 2=on/24V   mode: 1=auto
+# Assertions use LOG fields: actual_angle_tenths, sim_speed_cmPs
+
+0,350,6,1500,0,1,0
+# assert t=700: sim_speed_cmPs > 40
+700,350,6,0,0,1,0
+# ^ STOP right after -> actual should head back toward 0
+# assert t=1500: sim_speed_cmPs < 20
+1500,350,6,1500,0,1,0
+# ^ GO right after -> actual should head back up toward cruise
+# assert t=2800: sim_speed_cmPs > 50

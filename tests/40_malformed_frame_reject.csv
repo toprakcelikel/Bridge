@@ -1,0 +1,15 @@
+# Test: Malformed CAN frame rejection. Establish a safe stopped/centered baseline,
+#       then send a frame with the WRONG byte count (nbytes=3 instead of 6) carrying a
+#       dangerous accelerate + hard-right payload. It must be rejected, not acted on.
+# Physics: a well-formed command here would accelerate to 130 and slew to +250;
+#       if the trike stays stopped and centered, the bad frame was correctly dropped.
+# Format: time_ms, CANID, nbytes, speed_cmPs, brake, mode, angle_tenths
+#   brake: 0=off, 1=hold/12V, 2=on/24V   mode: 1=auto
+# Assertions use LOG fields: actual_angle_tenths, sim_speed_cmPs
+
+0,350,6,0,0,1,0
+# assert t=1000: sim_speed_cmPs < 20
+2000,350,3,1500,0,1,200
+# ^ MALFORMED: nbytes=3 but the payload requires 6. Carries speed 1500 + angle +200.
+# assert t=4000: sim_speed_cmPs < 20
+# assert t=4000: -20 <= actual_angle_tenths <= 20

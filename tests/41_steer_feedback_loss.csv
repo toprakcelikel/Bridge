@@ -1,0 +1,19 @@
+# Test: Closed-loop steering feedback loss. Command a full turn, then FREEZE/DROP the
+#       CAN wheel-angle feedback mid-slew. The controller must not wind up, run away
+#       past the limit, or oscillate -- ideally it detects stale feedback and fails
+#       safe (holds or stops).
+# Physics: closed loop drives the wheel toward cmd using CAN-supplied actual_angle.
+#       With feedback frozen, a naive controller keeps commanding in one direction.
+# NOTE: the command CSV cannot itself suppress the feedback message -- that is a
+#       separate CAN publisher. This test REQUIRES a harness hook to stop publishing
+#       the wheel-angle feedback at t=1500. Assertions below are ready once that exists.
+# Format: time_ms, CANID, nbytes, speed_cmPs, brake, mode, angle_tenths
+#   brake: 0=off, 1=hold/12V, 2=on/24V   mode: 1=auto
+# Assertions use LOG fields: actual_angle_tenths, dbw_angle_tenths, sim_speed_cmPs
+
+0,350,6,1500,0,1,250
+# ^ command full right turn while driving.
+# >>> HARNESS ACTION: stop publishing the wheel-angle feedback message at t=1500 <<<
+# assert t=1500: sim_speed_cmPs > 50
+# assert t=4000: actual_angle_tenths <= 250
+# assert t=4000: dbw_angle_tenths <= 260
