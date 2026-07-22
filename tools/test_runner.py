@@ -17,7 +17,15 @@ Examples:
 CSV format (extends the existing Stage 2 CSVs — backwards compatible):
     Command row:    time_ms, CANID, nbytes, speed_cmPs, brake, mode, angle_tenths
     Assertion line: # assert t=<ms>: <python expression using LOG field names>
+    Scored line:    time_ms, field_name, A, B, C, D   (trapezoidal, A<=B<=C<=D)
     Comment:        # any other line starting with #
+
+Trapezoidal scoring (per scored line): the LOG field is sampled at time_ms and
+scored in [0, 100] — full marks on the [B, C] plateau, linear ramps up on
+[A, B] and down on [C, D], zero outside [A, D]. A scored test passes when its
+score >= 60. The overall figure of merit is the average score across all
+scored lines. Example:
+    2800, actual_angle_tenths, 130, 240, 250, 260
 
 Sensor_Hub serial protocol (matching the NavigateTestRunner sketch in
 NavigateTestRunner/NavigateTestRunner.ino):
@@ -52,14 +60,20 @@ CMD_PATTERN = re.compile(
 )
 ASSERT_PATTERN = re.compile(r"^\s*#\s*assert\s+t=(\d+)\s*:\s*(.+?)\s*$")
 LOG_PATTERN = re.compile(r"^LOG,(\d+),(.+)$")
+# Trapezoidal scored test line: time_ms, field_name, A, B, C, D  (A<=B<=C<=D).
+# The non-numeric second field distinguishes it from a numeric command row.
+SCORE_PATTERN = re.compile(
+    r"^\s*(\d+)\s*,\s*([A-Za-z_]\w*)\s*,"
+    r"\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*,\s*(-?\d+)\s*$"
+)
 
 
-def parse_log_fields(line: str):
-    """Return the key=val int fields of a LOG line, or None if not a LOG line."""
+def parse_log_fields(line: str) -> dict[str, int] | None:
+    """Return the key=val fields of a LOG line, or None if not a LOG line."""
     m = LOG_PATTERN.match(line)
     if not m:
         return None
-    fields = {}
+    fields: dict[str, int] = {}
     for kv in m.group(2).split(","):
         if "=" in kv:
             k, v = kv.split("=", 1)
@@ -70,32 +84,30 @@ def parse_log_fields(line: str):
     return fields
 
 
-def baseline_reset(ser: "serial.Serial", timeout_s: float = 8.0,
-                   verbose: bool = False) -> bool:
-    """Put the rig in a known baseline state before a test's clock starts.
+def settle_center(ser: "serial.Serial", timeout_s: float = 6.0,
+                  verbose: bool = False) -> bool:
+    """Bring the rig to a known state before a timed test starts.
 
-    Each CSV is an independent test case, not a continuous mission — so we give
-    every test the same clean starting condition a fresh power-on would give:
-    wheel centered, vehicle stopped. This runs ONCE per CSV, before any of that
-    test's commands, so it establishes the initial condition the test assumes;
-    it never runs mid-test where it could pre-satisfy an assertion.
-
-    Holds 'speed 0, full brake, center' until the rig reports the wheel within
-    +/-20 tenths and speed under 20 cm/s for a few consecutive samples, AND the
-    DBW's reported angle tracks the sim's actual (proving the DBW loop is alive,
-    not frozen). Returns True once settled, False on timeout.
+    The Router + DBW run continuously between tests, so without this a test
+    inherits the previous test's wheel angle (the vehicle drives in circles at
+    full lock). Hold center + full brake until the sim reports the wheel
+    centered and stopped AND the DBW's own reported angle (dbw_angle_tenths,
+    via CAN 0x400) agrees with it. The DBW agreement is a liveness proof: a
+    stalled DBW freezes dbw_angle_tenths at a stale value, so it won't line up
+    with a freshly centered wheel. Returns True once a good state holds for a
+    few consecutive samples, False on timeout.
     """
     try:
         ser.reset_input_buffer()
     except Exception:
         pass
-    t_start = time.monotonic()
+    t0 = time.monotonic()
     last_send = 0.0
     good_streak = 0
-    while time.monotonic() - t_start < timeout_s:
+    while time.monotonic() - t0 < timeout_s:
         now = time.monotonic()
         if now - last_send >= 0.1:
-            ser.write(b"CMD,350,0,2,1,0\n")  # speed 0, brake 2 (full), mode 1, center
+            ser.write(b"CMD,350,0,2,1,0\n")  # speed 0, brake 2 (full), center
             ser.flush()
             last_send = now
         raw = ser.readline()
@@ -109,10 +121,10 @@ def baseline_reset(ser: "serial.Serial", timeout_s: float = 8.0,
         speed = fields.get("sim_speed_cmPs")
         if angle is None or dbw is None or speed is None:
             continue
-        settled = abs(angle) <= 20 and speed <= 20 and abs(dbw - angle) <= 40
-        good_streak = good_streak + 1 if settled else 0
+        good = abs(angle) <= 20 and abs(dbw) <= 20 and speed <= 20
+        good_streak = good_streak + 1 if good else 0
         if verbose:
-            print(f"  [reset] angle={angle} dbw={dbw} speed={speed} "
+            print(f"  [settle] angle={angle} dbw={dbw} speed={speed} "
                   f"streak={good_streak}")
         if good_streak >= 3:
             return True
@@ -137,11 +149,22 @@ class Assertion:
     expression: str
 
 
+@dataclass
+class ScoredAssertion:
+    time_ms: int
+    field: str
+    a: int
+    b: int
+    c: int
+    d: int
+
+
 # -- CSV parsing -------------------------------------------------------------
 
-def parse_csv(path: str) -> tuple[list[Command], list[Assertion]]:
+def parse_csv(path: str) -> tuple[list[Command], list[Assertion], list[ScoredAssertion]]:
     commands: list[Command] = []
     asserts: list[Assertion] = []
+    scored: list[ScoredAssertion] = []
     with open(path) as f:
         for raw in f:
             line = raw.rstrip("\r\n")
@@ -153,6 +176,21 @@ def parse_csv(path: str) -> tuple[list[Command], list[Assertion]]:
                 asserts.append(Assertion(int(m.group(1)), m.group(2)))
                 continue
             if stripped.startswith("#"):
+                continue
+            m = SCORE_PATTERN.match(line)
+            if m:
+                a, b, c, d = (int(m.group(3)), int(m.group(4)),
+                              int(m.group(5)), int(m.group(6)))
+                if not (a <= b <= c <= d):
+                    sys.stderr.write(
+                        f"  [warn] scored line not A<=B<=C<=D: {line!r}\n")
+                scored.append(
+                    ScoredAssertion(
+                        time_ms=int(m.group(1)),
+                        field=m.group(2),
+                        a=a, b=b, c=c, d=d,
+                    )
+                )
                 continue
             m = CMD_PATTERN.match(line)
             if m:
@@ -170,7 +208,8 @@ def parse_csv(path: str) -> tuple[list[Command], list[Assertion]]:
                 sys.stderr.write(f"  [warn] unparseable line: {line!r}\n")
     commands.sort(key=lambda c: c.time_ms)
     asserts.sort(key=lambda a: a.time_ms)
-    return commands, asserts
+    scored.sort(key=lambda s: s.time_ms)
+    return commands, asserts, scored
 
 
 # -- Serial reader thread ----------------------------------------------------
@@ -243,6 +282,45 @@ def evaluate(assertion: Assertion, log: list[tuple[int, dict[str, int]]]) -> tup
     return bool(result), f"@ t={nearest[0]} (Δ {drift_ms:+d} ms) → {expr}"
 
 
+def trapezoid_score(result: float, a: int, b: int, c: int, d: int) -> float:
+    """Trapezoidal score in [0, 100] for a value against ramp points A<=B<=C<=D.
+
+    Full marks on the [B, C] plateau, linear ramp up on [A, B] and down on
+    [C, D], and zero outside [A, D].
+    """
+    if result < a or result > d:
+        return 0.0
+    if b <= result <= c:
+        return 100.0
+    if a != b and a <= result < b:
+        return 100.0 * (result - a) / (b - a)
+    if c != d and c < result <= d:
+        return 100.0 * (d - result) / (d - c)
+    return 0.0
+
+
+def evaluate_scored(sa: "ScoredAssertion",
+                    log: list[tuple[int, dict[str, int]]]) -> tuple[float | None, str]:
+    """Sample sa.field near sa.time_ms and return (score, detail).
+
+    score is None when the value could not be measured (no LOG in range or the
+    field is absent) — callers treat that as 0 for the figure of merit.
+    """
+    if not log:
+        return None, "no LOG lines captured"
+    nearest = min(log, key=lambda e: abs(e[0] - sa.time_ms))
+    drift_ms = nearest[0] - sa.time_ms
+    if abs(drift_ms) > 500:
+        return None, f"no LOG within 500 ms of t={sa.time_ms} (nearest: t={nearest[0]})"
+    fields = nearest[1]
+    if sa.field not in fields:
+        return None, (f"field {sa.field!r} not in LOG "
+                      f"(have: {', '.join(sorted(fields))})")
+    val = fields[sa.field]
+    score = trapezoid_score(val, sa.a, sa.b, sa.c, sa.d)
+    return score, f"@ t={nearest[0]} (Δ {drift_ms:+d} ms) → {sa.field}={val}"
+
+
 # -- Main --------------------------------------------------------------------
 
 def main() -> int:
@@ -253,23 +331,24 @@ def main() -> int:
         return 2
     csv_path, port = args[0], args[1]
 
-    commands, asserts = parse_csv(csv_path)
-    print(f"Loaded {len(commands)} commands and {len(asserts)} assertions from {csv_path}")
+    commands, asserts, scored = parse_csv(csv_path)
+    print(f"Loaded {len(commands)} commands, {len(asserts)} assertions, "
+          f"{len(scored)} scored tests from {csv_path}")
 
     ser = serial.Serial(port, 115200, timeout=0.1)
     # Let the Due settle (Native USB CDC takes a moment to come up after open).
     time.sleep(0.5)
 
-    # Per-CSV baseline: give this independent test a clean, known starting
-    # state (wheel centered, stopped) before its clock starts. Runs once, only
-    # here — never mid-test.
-    print("Resetting to baseline (center + stop) before test...")
-    if baseline_reset(ser, verbose=verbose):
-        print("  Baseline reached: wheel centered, stopped, DBW tracking.")
+    # Deterministic start: re-center and stop, and confirm the DBW loop is
+    # alive, before the test clock starts. Without this each run inherits the
+    # previous run's wheel angle and results become a coin flip.
+    print("Settling to a centered/stopped state before test...")
+    if settle_center(ser, verbose=verbose):
+        print("  Settled: wheel centered, DBW tracking.")
     else:
-        print("  WARNING: could not reach baseline in time \u2014 starting anyway. If the"
-              " DBW is powered via USB, make sure no monitor holds its port and it"
-              " isn't frozen.")
+        print("  WARNING: could not reach a centered state in time. The DBW is"
+              " likely stalled or dropping CAN frames (0x350/0x430 lost in the"
+              " 0x701-0x70A Logger flood). Reset the DBW board. Continuing anyway.")
 
     t0 = time.monotonic()
     reader = LogReader(ser, t0, verbose=verbose)
@@ -287,9 +366,10 @@ def main() -> int:
         elapsed_ms = int((time.monotonic() - t0) * 1000)
         print(f"  [{elapsed_ms:6d} ms] -> {line.strip()}")
 
-    # Wait until the last assertion's time + slack so all LOG lines arrive.
-    if asserts:
-        slack_s = max(a.time_ms for a in asserts) / 1000.0 + 1.0
+    # Wait until the last assertion/scored time + slack so all LOG lines arrive.
+    end_times = [a.time_ms for a in asserts] + [s.time_ms for s in scored]
+    if end_times:
+        slack_s = max(end_times) / 1000.0 + 1.0
         target = t0 + slack_s
         delay = target - time.monotonic()
         if delay > 0:
@@ -302,19 +382,56 @@ def main() -> int:
     # Evaluate.
     print()
     print("=" * 60)
-    print(f"Assertions ({len(asserts)}):")
     passed = failed = 0
-    for a in asserts:
-        ok, detail = evaluate(a, reader.log)
-        status = "PASS" if ok else "FAIL"
-        print(f"  [{status}] t={a.time_ms:>5d} ms: {a.expression}")
-        print(f"           {detail}")
-        if ok:
-            passed += 1
-        else:
-            failed += 1
+
+    if asserts:
+        print(f"Assertions ({len(asserts)}):")
+        for a in asserts:
+            ok, detail = evaluate(a, reader.log)
+            status = "PASS" if ok else "FAIL"
+            print(f"  [{status}] t={a.time_ms:>5d} ms: {a.expression}")
+            print(f"           {detail}")
+            if ok:
+                passed += 1
+            else:
+                failed += 1
+
+    fom: float | None = None
+    if scored:
+        print(f"Scored tests ({len(scored)}), trapezoidal (A,B,C,D), pass \u2265 60:")
+        total = 0.0
+        for sa in scored:
+            score, detail = evaluate_scored(sa, reader.log)
+            s = score if score is not None else 0.0
+            ok = score is not None and s >= 60.0
+            status = "PASS" if ok else "FAIL"
+            print(f"  [{status}] t={sa.time_ms:>5d} ms: {sa.field} "
+                  f"({sa.a},{sa.b},{sa.c},{sa.d})  score={s:6.1f}")
+            print(f"           {detail}")
+            total += s
+            if ok:
+                passed += 1
+            else:
+                failed += 1
+        fom = total / len(scored)
+
     print()
-    print(f"Summary: {passed} passed, {failed} failed, {len(reader.log)} LOG samples captured")
+    print(f"Summary: {passed} passed, {failed} failed, "
+          f"{len(reader.log)} LOG samples captured")
+    if fom is not None:
+        print(f"Figure of merit (avg score): {fom:.1f} / 100")
+
+    # Diagnose a stalled DBW: if its reported angle never changed across the
+    # whole run, the closed loop was broken (frozen/dropped CAN), so any
+    # steering failures above are a DBW dropout, not a steering-logic fault.
+    if failed:
+        dbw_vals = [f["dbw_angle_tenths"] for _, f in reader.log
+                    if "dbw_angle_tenths" in f]
+        if len(dbw_vals) >= 5 and len(set(dbw_vals)) == 1:
+            print(f"NOTE: dbw_angle_tenths was frozen at {dbw_vals[0]} for the entire"
+                  " run \u2014 the DBW stalled or dropped CAN frames (not a steering-logic"
+                  " failure). Reset the DBW board and re-run.")
+
     return 0 if failed == 0 else 1
 
 

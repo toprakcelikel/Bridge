@@ -103,7 +103,10 @@
 #define FRICTION_DEN            10000
 #define MIN_EFFECTIVE_THROTTLE  65
 #define MAX_EFFECTIVE_THROTTLE  227
-#define MAX_SPEED_mmPs          2000
+// Top speed must match the DBW firmware's MAX_SPEED (Settings.h: MAX_SPEED_KmPh
+// 20 -> MAX_SPEED_mmPs 5400). Was 2000 (7.2 km/h), which capped the sim well
+// below the firmware's 20 km/h and made speed benchmarks unreachable.
+#define MAX_SPEED_mmPs          5400
 #define THROTTLE_HISTORY        10
 #define THROTTLE_DELAY_START    3
 #define THROTTLE_DELAY_END      10

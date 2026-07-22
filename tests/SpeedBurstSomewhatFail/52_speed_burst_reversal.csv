@@ -1,0 +1,20 @@
+# Test: Short speed burst then re-accelerate. Command a brief throttle burst, cut it at
+#       700 ms, then command speed again and confirm the trike re-accelerates.
+# Note: named "somewhat fail" because a ~700 ms burst is shorter than the throttle ramp,
+#       so speed barely rises by t=700 (the first assertion fails) yet the later
+#       re-acceleration succeeds.
+# Physics: throttle has a ramp/lag; a <~700 ms burst may not reach speed before it is cut.
+# Format: time_ms, CANID, nbytes, speed_cmPs, brake, mode, angle_tenths
+#   brake: 0=off, 1=hold/12V, 2=on/24V   mode: 1=auto
+# Scored lines: time_ms, field, A, B, C, D  (trapezoid 0-100; full marks in [B,C], pass >= 60)
+#   Fields: sim_speed_cmPs
+# Reconstructed from the captured run log (see the .txt in this folder).
+
+0,350,6,1500,0,1,0
+700, sim_speed_cmPs, 108, 216, 378, 432
+700,350,6,0,0,1,0
+# ^ throttle cut (speed 0, no brake) after the ~700 ms burst
+1500, sim_speed_cmPs, 0, 0, 0, 20
+1500,350,6,1500,0,1,0
+# ^ command speed again -> re-accelerate
+2800, sim_speed_cmPs, 108, 216, 378, 432

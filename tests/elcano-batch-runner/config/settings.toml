@@ -1,0 +1,14 @@
+# Configuration settings for the batch runner application
+
+[test]
+test_directory = "C:\\projects\\elcano-Bridge\\tests"
+csv_file_extension = ".csv"
+execute_all_tests = true
+
+[logging]
+log_level = "INFO"
+log_file = "C:\\projects\\elcano-Bridge\\logs\\batch_runner.log"
+
+[report]
+report_format = "text"
+report_directory = "C:\\projects\\elcano-Bridge\\reports"

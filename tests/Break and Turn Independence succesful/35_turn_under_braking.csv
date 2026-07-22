@@ -1,0 +1,17 @@
+# Test: Braking and steering are independent. Accelerate straight, then SIMULTANEOUSLY
+#       command a full brake (speed 0, brake 24V) AND a full-right turn, and confirm the
+#       wheel still slews to full lock while the trike brakes to a stop.
+# Physics: brake overrides throttle to a stop; the steering PID is unaffected by braking,
+#          so the wheel reaches +250 (full right) even as speed decays to 0.
+# Format: time_ms, CANID, nbytes, speed_cmPs, brake, mode, angle_tenths
+#   brake: 0=off, 1=hold/12V, 2=on/24V   mode: 1=auto
+# Scored lines: time_ms, field, A, B, C, D  (trapezoid 0-100; full marks in [B,C], pass >= 60)
+#   Fields: actual_angle_tenths, sim_speed_cmPs
+# Reconstructed from the captured run log (see the .txt in this folder).
+
+0,350,6,1500,0,1,0
+1500, sim_speed_cmPs, 108, 216, 378, 432
+1500,350,6,0,2,1,250
+# ^ brake ON (24V) + full-right turn commanded at the same time
+3200, sim_speed_cmPs, 0, 0, 0, 20
+4200, actual_angle_tenths, 220, 240, 250, 260
